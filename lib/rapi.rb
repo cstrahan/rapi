@@ -10,17 +10,8 @@ class RAPI
     @connected
   end
 
-  def connect(wait_for_init = true, timeout_seconds = 0)
+  def connect(timeout_seconds = 1)
     self.disconnect if connected?
-
-    if wait_for_init
-      ret = Native::Rapi.CeRapiInit
-      handle_hresult! ret
-
-      @connected = true
-
-      return
-    end
 
     init = Native::Rapi::RAPIINIT.new
     init[:cbSize] = Native::Rapi::RAPIINIT.size
@@ -28,35 +19,29 @@ class RAPI
     handle_hresult! ret
     init_event = init[:heRapiInit]
 
-    @init_thread = Thread.new { 
-      timeout = timeout_seconds * 4
-      infinite_timeout = timeout < 0
+    timeout = timeout_seconds * 4
+    infinite_timeout = timeout < 0
 
-      begin
-        if @kill_thread
+    begin
+      ret = Native::Kernel32.WaitForSingleObject(init_event, 250)
+
+      if ret == Native::WAIT_FAILED || ret == Native::WAIT_ABANDONED
+        Native::Kernel32.CloseHandle(init_event)
+        raise RAPIException, "Failed to Initialize RAPI"
+      end
+
+      if !infinite_timeout
+        if (timeout -= 1) < 0
           Native::Kernel32.CloseHandle(init_event)
-          return
+          raise RAPIException, "Timeout waiting for device connection"
         end
+      end
+    end while ret != 0
 
-        ret = Native::Kernel32.WaitForSingleObject(init_event, 250)
+    @connected = true
+    Native::Kernel32.CloseHandle(init_event)
 
-        if ret == Native::WAIT_FAILED || ret == Native::WAIT_ABANDONED
-          Native::Kernel32.CloseHandle(init_event)
-          raise RAPIException, "Failed to Initialize RAPI"
-        end
-
-        if !infinite_timeout
-          if (timeout -= 1) < 0
-            Native::Kernel32.CloseHandle(init_event)
-            raise RAPIException, "Timeout waiting for device connection"
-          end
-        end
-      end while ret != 0
-
-      @connected = true
-
-      Native::Kernel32.CloseHandle(init_event)
-    }
+    nil
   end
 
   def disconnect
@@ -64,6 +49,8 @@ class RAPI
       Native::Rapi.CeRapiUninit
       @connected = false
     end
+
+    nil
   end
 
   def device_file_exists?(remote_file_name)
