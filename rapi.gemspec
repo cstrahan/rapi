@@ -24,6 +24,7 @@ Gem::Specification.new do |s|
     "Rakefile",
     "VERSION",
     "lib/rapi.rb",
+    "rapi.gemspec",
     "test/helper.rb",
     "test/test_rapi.rb"
   ]
