@@ -1,6 +1,6 @@
 = rapi
 
-Description goes here.
+A {Remote API (RAPI)}[http://msdn.microsoft.com/en-us/library/aa920177.aspx] interface.
 
 == Contributing to rapi
  
