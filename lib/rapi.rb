@@ -1,4 +1,5 @@
 require 'ffi'
+require 'iconv'
 
 class RAPI
 
@@ -169,7 +170,7 @@ class RAPI
     find_data = Native::Rapi::CE_FIND_DATA.new
     
     file_infos = []
-    handle = Native::Rapi.CeFindFirstFile(file_name, find_data)
+    handle = Native::Rapi.CeFindFirstFile(to_utf16(file_name), find_data)
 
     if handle != Native::INVALID_HANDLE
       file_infos << FileInformation.new(find_data)
@@ -186,7 +187,7 @@ class RAPI
 
   private
 
-  def self.handle_hresult!(hresult)
+  def handle_hresult!(hresult)
     if hresult != 0
       msg_ptr = FFI::MemoryPointer.new(FFI::Pointer)
       format = Native::FORMAT_MESSAGE_ALLOCATE_BUFFER | Native::FORMAT_MESSAGE_FROM_SYSTEM | Native::FORMAT_MESSAGE_IGNORE_INSERTS
@@ -203,12 +204,11 @@ class RAPI
   end
 
   if RUBY_VERSION =~ /^1\.9\.\d/
-    def self.to_utf16(str)
+    def to_utf16(str)
       str.encode("UTF-16LE")
     end
   else
-    require 'iconv'
-    def self.to_utf16(str)
+    def to_utf16(str)
       Iconv.conv("UTF-16LE", "ASCII", str)
     end
   end
@@ -228,7 +228,7 @@ class RAPI
       @create_time        = ce_find_data[:ftCreationTime]
       @last_access_time   = ce_find_data[:ftLastAccessTime]
       @last_write_time    = ce_find_data[:ftLastWriteTime]
-      @name               = ce_find_data[:cFileName].to_ptr.get_string(0)
+      @name               = Iconv.conv("ASCII", "UTF-16LE", ce_find_data[:cFileName].to_ptr.get_bytes(0, 260)).strip
       @size               = ce_find_data[:nFileSizeHigh] << 64 &&
                             ce_find_data[:nFileSizeLow]
     end
