@@ -187,6 +187,17 @@ class RAPI
     file_infos
   end
 
+  def create_process(file_name, arguments = nil)
+    pi = Native::Rapi::PROCESS_INFORMATION.new
+
+    if Native::Rapi.CeCreateProcess(to_utf16(file_name), to_utf16(arguments), nil, nil, 0, 0, nil, nil, nil, pi) == 0
+      errnum = Native::Rapi.CeGetLastError
+      handle_hresult! errnum
+    end
+
+    ProcessInformation.new(pi)
+  end
+
   private
 
   def handle_hresult!(hresult)
@@ -207,15 +218,31 @@ class RAPI
 
   if RUBY_VERSION =~ /^1\.9\.\d/
     def to_utf16(str)
+      return nil if str.nil?
       str.encode("UTF-16LE")
     end
   else
     def to_utf16(str)
+      return nil if str.nil?
       Iconv.conv("UTF-16LE", "ASCII", str)
     end
   end
 
   public
+
+  class ProcessInformation
+    attr_reader :process_handle
+    attr_reader :thread_handle
+    attr_reader :process_id
+    attr_reader :thread_id
+
+    def initialize(process_information)
+      @process_handle = process_information[:hProcess]
+      @thread_handle  = process_information[:hThread]
+      @process_id     = process_information[:dwProcessId]
+      @thread_id      = process_information[:dwThreadId]
+    end
+  end
 
   class FileInformation
     attr_reader :attributes
@@ -347,6 +374,13 @@ class RAPI
                 :cFileName,         [:uint8, 260], 40
       end
 
+      class PROCESS_INFORMATION < FFI::Struct
+        layout  :hProcess,       :pointer,
+                :hThread,        :pointer,
+                :dwProcessId,    :int,
+                :dwThreadId,     :int
+      end
+
       attach_function 'CeRapiInitEx', [RAPIINIT.by_ref], :int
       attach_function 'CeRapiUninit', [], :int
       attach_function 'CeRapiGetError', [], :int
@@ -363,6 +397,8 @@ class RAPI
       attach_function 'CeFindFirstFile', [:pointer, CE_FIND_DATA.ptr], :pointer
       attach_function 'CeFindNextFile', [:pointer, CE_FIND_DATA.ptr], :int
       attach_function 'CeFindClose', [:pointer], :int
+      attach_function 'CeCreateProcess', [:pointer, :pointer, :pointer, :pointer, :int, :int, :pointer, :pointer, :pointer, PROCESS_INFORMATION.ptr], :int
+      attach_function 'CeGetLastError', [], :int
     end
 
     module Kernel32
