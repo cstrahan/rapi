@@ -219,7 +219,7 @@ class RAPI
   if RUBY_VERSION =~ /^1\.9\.\d/
     def to_utf16(str)
       return nil if str.nil?
-      str.encode("UTF-16LE") + "\0\0"
+      str.encode("UTF-16LE") + "\0\0".force_encoding("UTF-16LE")
     end
   else
     def to_utf16(str)
