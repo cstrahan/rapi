@@ -30,12 +30,14 @@ class RAPI
 
       if ret == Native::WAIT_FAILED || ret == Native::WAIT_ABANDONED
         Native::Kernel32.CloseHandle(init_event)
+        Native::Rapi.CeRapiUninit
         raise RAPIException, "Failed to Initialize RAPI"
       end
 
       if !infinite_timeout
         if (timeout -= 1) < 0
           Native::Kernel32.CloseHandle(init_event)
+          Native::Rapi.CeRapiUninit
           raise RAPIException, "Timeout waiting for device connection"
         end
       end
@@ -62,7 +64,6 @@ class RAPI
   end
 
   def copy_file_from_device(remote_file_name, local_file_name, overwrite = false)
-
     if !overwrite && File.exists?(local_file_name)
       raise RAPIException, "A local file with the given name already exists"
     end
@@ -102,7 +103,6 @@ class RAPI
   end
 
   def copy_file_to_device(local_file_name, remote_file_name, overwrite = false)
-    
     create = overwrite ? Native::CREATE_ALWAYS : Native::CREATE_NEW
     remote_file = Native::Rapi.CeCreateFile(to_utf16(remote_file_name), Native::GENERIC_WRITE, 0, 0, create, Native::FILE_ATTRIBUTE_NORMAL, 0)
 
@@ -124,6 +124,45 @@ class RAPI
     Native::Rapi.CeCloseHandle(remote_file)
 
     true
+  end
+
+  def copy_file_on_device(existing_file_name, new_file_name, overwrite = false)
+    if Native::Rapi.CeCopyFile(to_utf16(existing_file_name), to_utf16(new_file_name), overwrite ? 0 : 1) == 0
+      raise RAPIException, "Cannot copy file"
+    end
+
+    true
+  end
+
+  def delete_device_file(file_name)
+    if Native::Rapi.CeDeleteFile(to_utf16(file_name)) == 0
+      raise RAPIException, "Could not delete file"
+    end
+
+    true
+  end
+
+  def move_device_file(existing_file_name, new_file_name)
+    if Native::Rapi.CeMoveFile(to_utf16(existing_file_name), to_utf16(new_file_name)) == 0
+      raise RAPIException, "Cannot move file"
+    end
+
+    true
+  end
+
+  def get_device_file_attributes(file_name)
+    ret = Native::Rapi.CeGetFileAttributes(to_utf16(file_name))
+    if ret == 0xFFFFFFFF
+      raise RAPIException, "Could not get file attributes"
+    end
+
+    FileAttributes.new(ret)
+  end
+
+  def set_device_file_attributes(file_name, attributes)
+    if Native::Rapi.CeSetFileAttributes(to_utf16(file_name), attributes.to_i) == 0
+      raise RAPIExcpetion, "Cannot set device file attributes"
+    end
   end
 
   private
@@ -157,6 +196,45 @@ class RAPI
 
   public
 
+  class FileAttributes
+    private
+    def self.enum_attr(name, num)
+      name = name.to_s
+      define_method(name + "?") do
+        @attrs & num != 0
+      end
+      define_method(name + "=") do |set|
+        if set
+          @attrs |= num
+        else
+          @attrs &= ~num
+        end
+      end
+    end
+    public
+
+    def initialize(attrs = 0)
+      @attrs = attrs
+    end
+
+    def to_i
+      @attrs
+    end
+
+    enum_attr :readonly,       0x0001
+    enum_attr :hidden,         0x0002
+    enum_attr :system,         0x0004
+    enum_attr :directory,      0x0010
+    enum_attr :archive,        0x0020
+    enum_attr :in_rom,         0x0040
+    enum_attr :normal,         0x0080
+    enum_attr :temporary,      0x0100
+    enum_attr :sparse,         0x0200
+    enum_attr :reparse_point,  0x0400
+    enum_attr :compressed,     0x0800
+    enum_attr :rom_module,     0x2000
+  end
+
   class RAPIException < Exception
   end
 
@@ -182,9 +260,6 @@ class RAPI
     FILE_ATTRIBUTE_NORMAL = 0x80
     INVALID_HANDLE  = FFI::Pointer.new(-1)
 
-    module Util
-    end
-
     module Rapi
       extend FFI::Library
       ffi_lib 'rapi.dll'
@@ -206,6 +281,8 @@ class RAPI
       attach_function 'CeRapiFreeBuffer', [:pointer], :void
       attach_function 'CeGetFileAttributes', [:pointer], :uint
       attach_function 'CeCreateFile', [:pointer, :uint, :int, :int, :int, :int, :int], :pointer
+      attach_function 'CeCopyFile', [:pointer, :pointer, :int], :int
+      attach_function 'CeDeleteFile', [:pointer], :int
     end
 
     module Kernel32
