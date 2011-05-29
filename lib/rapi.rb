@@ -165,6 +165,25 @@ class RAPI
     end
   end
 
+  def enum_files(file_name)
+    find_data = Native::Rapi::CE_FIND_DATA.new
+    
+    file_infos = []
+    handle = Native::Rapi.CeFindFirstFile(file_name, find_data)
+
+    if handle != Native::INVALID_HANDLE
+      file_infos << FileInformation.new(find_data)
+
+      while Native::Rapi.CeFindNextFile(handle, find_data) != 0
+        file_infos << FileInformation.new(find_data)
+      end
+
+      Native::Rapi.CeFindClose(handle)
+    end
+
+    file_infos
+  end
+
   private
 
   def handle_hresult!(hresult)
@@ -184,17 +203,39 @@ class RAPI
   end
 
   if RUBY_VERSION =~ /^1\.9\.\d/
-    def to_utf16(str)
+    def self.to_utf16(str)
       str.encode("UTF-16LE")
     end
   else
     require 'iconv'
-    def to_utf16(str)
+    def self.to_utf16(str)
       Iconv.conv("UTF-16LE", "ASCII", str)
     end
   end
 
   public
+
+  class FileInformation
+    attr_reader :attributes
+    attr_reader :create_time
+    attr_reader :last_access_time
+    attr_reader :last_write_time
+    attr_reader :size
+    attr_reader :name
+
+    def initialize(ce_find_data)
+      @attributes         = FileAttributes.new(ce_find_data[:dwFileAttributes])
+      @create_time        = ce_find_data[:ftCreationTime]
+      @last_access_time   = ce_find_data[:ftLastAccessTime]
+      @last_write_time    = ce_find_data[:ftLastWriteTime]
+      @name               = ce_find_data[:cFileName].to_ptr.get_string(0)
+      @size               = ce_find_data[:nFileSizeHigh] << 64 &&
+                            ce_find_data[:nFileSizeLow]
+
+      puts ce_find_data[:nFileSizeHigh] 
+      puts ce_find_data[:nFileSizeLow] 
+    end
+  end
 
   class FileAttributes
     private
@@ -260,6 +301,19 @@ class RAPI
     FILE_ATTRIBUTE_NORMAL = 0x80
     INVALID_HANDLE  = FFI::Pointer.new(-1)
 
+    class FILETIME
+      extend FFI::DataConverter
+      native_type :uint64
+
+      def self.from_native(val, ctx)
+        Time.at((val * 1.0e-07) + Time.new(1601).to_f)
+      end
+
+      def self.to_native(val, ctx)
+        (val.to_i - Time.new(1601).to_f) / 1.0e-07 
+      end
+    end
+
     module Rapi
       extend FFI::Library
       ffi_lib 'rapi.dll'
@@ -269,6 +323,17 @@ class RAPI
         layout  :cbSize,     :int,
                 :heRapiInit, :pointer,
                 :hrRapiInit, :int
+      end
+
+      class CE_FIND_DATA < FFI::Struct
+        layout  :dwFileAttributes,  :uint,          0,
+                :ftCreationTime,    FILETIME,       4,
+                :ftLastAccessTime,  FILETIME,      12,
+                :ftLastWriteTime,   FILETIME,      20,
+                :nFileSizeHigh,     :uint,         28,
+                :nFileSizeLow,      :uint,         32,
+                :dwOID,             :uint,         36,
+                :cFileName,         [:uint8, 260], 40
       end
 
       attach_function 'CeRapiInitEx', [RAPIINIT.by_ref], :int
@@ -283,6 +348,11 @@ class RAPI
       attach_function 'CeCreateFile', [:pointer, :uint, :int, :int, :int, :int, :int], :pointer
       attach_function 'CeCopyFile', [:pointer, :pointer, :int], :int
       attach_function 'CeDeleteFile', [:pointer], :int
+      attach_function 'CeGetFileAttributes', [:pointer], :uint
+      attach_function 'CeSetFileAttributes', [:pointer, :uint], :int
+      attach_function 'CeFindFirstFile', [:pointer, CE_FIND_DATA.ptr], :pointer
+      attach_function 'CeFindNextFile', [:pointer, CE_FIND_DATA.ptr], :int
+      attach_function 'CeFindClose', [:pointer], :int
     end
 
     module Kernel32
