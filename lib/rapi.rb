@@ -350,7 +350,6 @@ class RAPI
       attach_function 'CeRapiInitEx', [RAPIINIT.by_ref], :int
       attach_function 'CeRapiUninit', [], :int
       attach_function 'CeRapiGetError', [], :int
-      attach_function 'CeRapiUninit', [], :int
       attach_function 'CeCloseHandle', [:pointer], :int
       attach_function 'CeWriteFile', [:pointer, :pointer, :int, :pointer, :int], :int
       attach_function 'CeReadFile', [:pointer, :pointer, :int, :pointer, :int], :int
