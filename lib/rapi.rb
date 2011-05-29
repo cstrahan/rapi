@@ -231,7 +231,7 @@ class RAPI
       @last_access_time   = ce_find_data[:ftLastAccessTime]
       @last_write_time    = ce_find_data[:ftLastWriteTime]
       @name               = encode(ce_find_data[:cFileName].to_ptr.get_bytes(0, 260))
-      @size               = ce_find_data[:nFileSizeHigh] << 64 &&
+      @size               = ce_find_data[:nFileSizeHigh] << 32 &&
                             ce_find_data[:nFileSizeLow]
     end
 
