@@ -174,9 +174,11 @@ class RAPI
 
     if handle != Native::INVALID_HANDLE
       file_infos << FileInformation.new(find_data)
+      find_data.pointer.clear
 
       while Native::Rapi.CeFindNextFile(handle, find_data) != 0
         file_infos << FileInformation.new(find_data)
+        find_data.pointer.clear
       end
 
       Native::Rapi.CeFindClose(handle)
@@ -228,9 +230,21 @@ class RAPI
       @create_time        = ce_find_data[:ftCreationTime]
       @last_access_time   = ce_find_data[:ftLastAccessTime]
       @last_write_time    = ce_find_data[:ftLastWriteTime]
-      @name               = Iconv.conv("ASCII", "UTF-16LE", ce_find_data[:cFileName].to_ptr.get_bytes(0, 260)).strip
+      @name               = encode(ce_find_data[:cFileName].to_ptr.get_bytes(0, 260))
       @size               = ce_find_data[:nFileSizeHigh] << 64 &&
                             ce_find_data[:nFileSizeLow]
+    end
+
+    private
+
+    if RUBY_VERSION =~ /^1\.9\.\d/
+      def encode(path)
+        path.force_encoding("UTF-16LE").strip
+      end
+    else
+      def encode(path)
+        Iconv.conv("ASCII", "UTF-16LE", path).strip
+      end
     end
   end
 
