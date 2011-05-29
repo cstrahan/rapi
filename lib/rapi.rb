@@ -186,7 +186,7 @@ class RAPI
 
   private
 
-  def handle_hresult!(hresult)
+  def self.handle_hresult!(hresult)
     if hresult != 0
       msg_ptr = FFI::MemoryPointer.new(FFI::Pointer)
       format = Native::FORMAT_MESSAGE_ALLOCATE_BUFFER | Native::FORMAT_MESSAGE_FROM_SYSTEM | Native::FORMAT_MESSAGE_IGNORE_INSERTS
@@ -231,9 +231,6 @@ class RAPI
       @name               = ce_find_data[:cFileName].to_ptr.get_string(0)
       @size               = ce_find_data[:nFileSizeHigh] << 64 &&
                             ce_find_data[:nFileSizeLow]
-
-      puts ce_find_data[:nFileSizeHigh] 
-      puts ce_find_data[:nFileSizeLow] 
     end
   end
 
