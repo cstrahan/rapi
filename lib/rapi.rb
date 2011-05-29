@@ -219,12 +219,12 @@ class RAPI
   if RUBY_VERSION =~ /^1\.9\.\d/
     def to_utf16(str)
       return nil if str.nil?
-      str.encode("UTF-16LE")
+      str.encode("UTF-16LE") + "\0\0"
     end
   else
     def to_utf16(str)
       return nil if str.nil?
-      Iconv.conv("UTF-16LE", "ASCII", str)
+      Iconv.conv("UTF-16LE", "ASCII", str) + "\0\0"
     end
   end
 
@@ -377,8 +377,8 @@ class RAPI
       class PROCESS_INFORMATION < FFI::Struct
         layout  :hProcess,       :pointer,
                 :hThread,        :pointer,
-                :dwProcessId,    :int,
-                :dwThreadId,     :int
+                :dwProcessId,    :uint,
+                :dwThreadId,     :uint
       end
 
       attach_function 'CeRapiInitEx', [RAPIINIT.by_ref], :int
