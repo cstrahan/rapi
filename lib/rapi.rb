@@ -60,12 +60,16 @@ class RAPI
   end
 
   def exist?(remote_file_name)
+    check_connection()
+
     Native::Rapi::CeGetFileAttributes(to_utf16(remote_file_name)) != 0xFFFFFFFF
   end
 
   alias exists? exist?
 
   def download(remote_file_name, local_file_name, overwrite = false)
+    check_connection()
+
     if !overwrite && File.exists?(local_file_name)
       raise RAPIException, "A local file with the given name already exists"
     end
@@ -105,6 +109,8 @@ class RAPI
   end
 
   def upload(local_file_name, remote_file_name, overwrite = false)
+    check_connection()
+
     create = overwrite ? Native::CREATE_ALWAYS : Native::CREATE_NEW
     remote_file = Native::Rapi.CeCreateFile(to_utf16(remote_file_name), Native::GENERIC_WRITE, 0, 0, create, Native::FILE_ATTRIBUTE_NORMAL, 0)
 
@@ -129,6 +135,8 @@ class RAPI
   end
 
   def copy(existing_file_name, new_file_name, overwrite = false)
+    check_connection()
+
     if Native::Rapi.CeCopyFile(to_utf16(existing_file_name), to_utf16(new_file_name), overwrite ? 0 : 1) == 0
       raise RAPIException, "Cannot copy file"
     end
@@ -137,6 +145,8 @@ class RAPI
   end
 
   def delete(file_name)
+    check_connection()
+
     if Native::Rapi.CeDeleteFile(to_utf16(file_name)) == 0
       raise RAPIException, "Could not delete file"
     end
@@ -145,6 +155,8 @@ class RAPI
   end
 
   def move(existing_file_name, new_file_name)
+    check_connection()
+
     if Native::Rapi.CeMoveFile(to_utf16(existing_file_name), to_utf16(new_file_name)) == 0
       raise RAPIException, "Cannot move file"
     end
@@ -153,6 +165,8 @@ class RAPI
   end
 
   def get_attributes(file_name)
+    check_connection()
+
     ret = Native::Rapi.CeGetFileAttributes(to_utf16(file_name))
     if ret == 0xFFFFFFFF
       raise RAPIException, "Could not get file attributes"
@@ -164,6 +178,8 @@ class RAPI
   alias get_attrs get_attributes
 
   def set_attributes(file_name, attributes)
+    check_connection()
+
     if Native::Rapi.CeSetFileAttributes(to_utf16(file_name), attributes.to_i) == 0
       raise RAPIExcpetion, "Cannot set device file attributes"
     end
@@ -172,6 +188,8 @@ class RAPI
   alias set_attrs set_attributes
 
   def search(file_name)
+    check_connection()
+
     find_data = Native::Rapi::CE_FIND_DATA.new
     
     file_infos = []
@@ -195,6 +213,8 @@ class RAPI
   alias glob search
 
   def exec(file_name, *args)
+    check_connection
+
     args = if args.empty?
              nil
            else
@@ -212,6 +232,12 @@ class RAPI
   end
 
   private
+
+  def check_connection
+    unless connected?
+      raise RAPIException, "Cannot perform operation while disconnected"
+    end
+  end
 
   def handle_hresult!(hresult)
     if hresult != 0
