@@ -310,7 +310,7 @@ class RAPI
     public
 
     def initialize(attrs = 0)
-      @attrs = attrs
+      @attrs = attrs.to_i
     end
 
     def to_i
