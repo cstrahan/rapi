@@ -59,12 +59,13 @@ class RAPI
     true
   end
 
-  def device_file_exists?(remote_file_name)
-    path = to_utf16(remote_file_name)
-    Native::Rapi::CeGetFileAttributes(path) != 0xFFFFFFFF
+  def exist?(remote_file_name)
+    Native::Rapi::CeGetFileAttributes(to_utf16(remote_file_name)) != 0xFFFFFFFF
   end
 
-  def copy_file_from_device(remote_file_name, local_file_name, overwrite = false)
+  alias exists? exist?
+
+  def download(remote_file_name, local_file_name, overwrite = false)
     if !overwrite && File.exists?(local_file_name)
       raise RAPIException, "A local file with the given name already exists"
     end
@@ -103,7 +104,7 @@ class RAPI
     true
   end
 
-  def copy_file_to_device(local_file_name, remote_file_name, overwrite = false)
+  def upload(local_file_name, remote_file_name, overwrite = false)
     create = overwrite ? Native::CREATE_ALWAYS : Native::CREATE_NEW
     remote_file = Native::Rapi.CeCreateFile(to_utf16(remote_file_name), Native::GENERIC_WRITE, 0, 0, create, Native::FILE_ATTRIBUTE_NORMAL, 0)
 
@@ -127,7 +128,7 @@ class RAPI
     true
   end
 
-  def copy_file_on_device(existing_file_name, new_file_name, overwrite = false)
+  def copy(existing_file_name, new_file_name, overwrite = false)
     if Native::Rapi.CeCopyFile(to_utf16(existing_file_name), to_utf16(new_file_name), overwrite ? 0 : 1) == 0
       raise RAPIException, "Cannot copy file"
     end
@@ -135,7 +136,7 @@ class RAPI
     true
   end
 
-  def delete_device_file(file_name)
+  def delete(file_name)
     if Native::Rapi.CeDeleteFile(to_utf16(file_name)) == 0
       raise RAPIException, "Could not delete file"
     end
@@ -143,7 +144,7 @@ class RAPI
     true
   end
 
-  def move_device_file(existing_file_name, new_file_name)
+  def move(existing_file_name, new_file_name)
     if Native::Rapi.CeMoveFile(to_utf16(existing_file_name), to_utf16(new_file_name)) == 0
       raise RAPIException, "Cannot move file"
     end
@@ -151,7 +152,7 @@ class RAPI
     true
   end
 
-  def get_device_file_attributes(file_name)
+  def get_attributes(file_name)
     ret = Native::Rapi.CeGetFileAttributes(to_utf16(file_name))
     if ret == 0xFFFFFFFF
       raise RAPIException, "Could not get file attributes"
@@ -160,13 +161,17 @@ class RAPI
     FileAttributes.new(ret)
   end
 
-  def set_device_file_attributes(file_name, attributes)
+  alias get_attrs get_attributes
+
+  def set_attributes(file_name, attributes)
     if Native::Rapi.CeSetFileAttributes(to_utf16(file_name), attributes.to_i) == 0
       raise RAPIExcpetion, "Cannot set device file attributes"
     end
   end
 
-  def enum_files(file_name)
+  alias set_attrs set_attributes
+
+  def search(file_name)
     find_data = Native::Rapi::CE_FIND_DATA.new
     
     file_infos = []
@@ -187,10 +192,18 @@ class RAPI
     file_infos
   end
 
-  def create_process(file_name, arguments = nil)
+  alias glob search
+
+  def exec(file_name, *args)
+    args = if args.empty?
+             nil
+           else
+             args.join(' ')
+           end
+
     pi = Native::Rapi::PROCESS_INFORMATION.new
 
-    if Native::Rapi.CeCreateProcess(to_utf16(file_name), to_utf16(arguments), nil, nil, 0, 0, nil, nil, nil, pi) == 0
+    if Native::Rapi.CeCreateProcess(to_utf16(file_name), to_utf16(args), nil, nil, 0, 0, nil, nil, nil, pi) == 0
       errnum = Native::Rapi.CeGetLastError
       handle_hresult! errnum
     end
@@ -275,13 +288,16 @@ class RAPI
     end
   end
 
-  class FileAttributes
+  class Enum
+
     private
+
     def self.enum_attr(name, num)
       name = name.to_s
       define_method(name + "?") do
         @attrs & num != 0
       end
+
       define_method(name + "=") do |set|
         if set
           @attrs |= num
@@ -290,6 +306,7 @@ class RAPI
         end
       end
     end
+
     public
 
     def initialize(attrs = 0)
@@ -299,7 +316,9 @@ class RAPI
     def to_i
       @attrs
     end
+  end
 
+  class FileAttributes < Enum
     enum_attr :readonly,       0x0001
     enum_attr :hidden,         0x0002
     enum_attr :system,         0x0004
@@ -348,7 +367,7 @@ class RAPI
       end
 
       def self.to_native(val, ctx)
-        (val.to_i - Time.new(1601).to_f) / 1.0e-07 
+        ((val.to_f - Time.new(1601).to_f) / 1.0e-07).to_i 
       end
     end
 
@@ -381,24 +400,24 @@ class RAPI
                 :dwThreadId,     :uint
       end
 
-      attach_function 'CeRapiInitEx', [RAPIINIT.by_ref], :int
-      attach_function 'CeRapiUninit', [], :int
-      attach_function 'CeRapiGetError', [], :int
-      attach_function 'CeCloseHandle', [:pointer], :int
-      attach_function 'CeWriteFile', [:pointer, :pointer, :int, :pointer, :int], :int
-      attach_function 'CeReadFile', [:pointer, :pointer, :int, :pointer, :int], :int
-      attach_function 'CeRapiFreeBuffer', [:pointer], :void
-      attach_function 'CeGetFileAttributes', [:pointer], :uint
-      attach_function 'CeCreateFile', [:pointer, :uint, :int, :int, :int, :int, :int], :pointer
-      attach_function 'CeCopyFile', [:pointer, :pointer, :int], :int
-      attach_function 'CeDeleteFile', [:pointer], :int
-      attach_function 'CeGetFileAttributes', [:pointer], :uint
-      attach_function 'CeSetFileAttributes', [:pointer, :uint], :int
-      attach_function 'CeFindFirstFile', [:pointer, CE_FIND_DATA.ptr], :pointer
-      attach_function 'CeFindNextFile', [:pointer, CE_FIND_DATA.ptr], :int
-      attach_function 'CeFindClose', [:pointer], :int
-      attach_function 'CeCreateProcess', [:pointer, :pointer, :pointer, :pointer, :int, :int, :pointer, :pointer, :pointer, PROCESS_INFORMATION.ptr], :int
-      attach_function 'CeGetLastError', [], :int
+      attach_function :CeRapiInitEx, [RAPIINIT.by_ref], :int
+      attach_function :CeRapiUninit, [], :int
+      attach_function :CeRapiGetError, [], :int
+      attach_function :CeCloseHandle, [:pointer], :int
+      attach_function :CeWriteFile, [:pointer, :pointer, :int, :pointer, :int], :int
+      attach_function :CeReadFile, [:pointer, :pointer, :int, :pointer, :int], :int
+      attach_function :CeRapiFreeBuffer, [:pointer], :void
+      attach_function :CeGetFileAttributes, [:pointer], :uint
+      attach_function :CeCreateFile, [:pointer, :uint, :int, :int, :int, :int, :int], :pointer
+      attach_function :CeCopyFile, [:pointer, :pointer, :int], :int
+      attach_function :CeDeleteFile, [:pointer], :int
+      attach_function :CeGetFileAttributes, [:pointer], :uint
+      attach_function :CeSetFileAttributes, [:pointer, :uint], :int
+      attach_function :CeFindFirstFile, [:pointer, CE_FIND_DATA.by_ref], :pointer
+      attach_function :CeFindNextFile, [:pointer, CE_FIND_DATA.by_ref], :int
+      attach_function :CeFindClose, [:pointer], :int
+      attach_function :CeCreateProcess, [:pointer, :pointer, :pointer, :pointer, :int, :int, :pointer, :pointer, :pointer, PROCESS_INFORMATION.ptr], :int
+      attach_function :CeGetLastError, [], :int
     end
 
     module Kernel32
