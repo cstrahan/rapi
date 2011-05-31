@@ -196,11 +196,11 @@ class RAPI
     handle = Native::Rapi.CeFindFirstFile(to_utf16(file_name), find_data)
 
     if handle != Native::INVALID_HANDLE
-      file_infos << FileInformation.new(find_data)
+      file_infos << FileInformation.new(file_name, find_data)
       find_data.pointer.clear
 
       while Native::Rapi.CeFindNextFile(handle, find_data) != 0
-        file_infos << FileInformation.new(find_data)
+        file_infos << FileInformation.new(file_name, find_data)
         find_data.pointer.clear
       end
 
@@ -290,8 +290,9 @@ class RAPI
     attr_reader :last_write_time
     attr_reader :size
     attr_reader :name
+    attr_reader :path
 
-    def initialize(ce_find_data)
+    def initialize(search_term, ce_find_data)
       @attributes         = FileAttributes.new(ce_find_data[:dwFileAttributes])
       @create_time        = ce_find_data[:ftCreationTime]
       @last_access_time   = ce_find_data[:ftLastAccessTime]
@@ -299,6 +300,9 @@ class RAPI
       @name               = encode(ce_find_data[:cFileName].to_ptr.get_bytes(0, 260))
       @size               = ce_find_data[:nFileSizeHigh] << 32 &&
                             ce_find_data[:nFileSizeLow]
+
+      dir = File.expand_path("/" + File.dirname(search_term)).gsub(%r{^([a-z]:|\\|/|\.)}i, '')
+      @path =  File.join(dir, @name)
     end
 
     private
@@ -320,6 +324,7 @@ class RAPI
 
     def self.enum_attr(name, num)
       name = name.to_s
+
       define_method(name + "?") do
         @attrs & num != 0
       end
