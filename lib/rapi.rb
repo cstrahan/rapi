@@ -305,7 +305,7 @@ class RAPI
 
     if RUBY_VERSION =~ /^1\.9\.\d/
       def encode(path)
-        path.force_encoding("UTF-16LE").strip
+        path.force_encoding("UTF-16LE").strip.encode("UTF-8")
       end
     else
       def encode(path)
