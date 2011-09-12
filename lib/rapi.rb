@@ -241,18 +241,21 @@ class RAPI
 
   def handle_hresult!(hresult)
     if hresult != 0
-      msg_ptr = FFI::MemoryPointer.new(FFI::Pointer)
-      format = Native::FORMAT_MESSAGE_ALLOCATE_BUFFER | Native::FORMAT_MESSAGE_FROM_SYSTEM | Native::FORMAT_MESSAGE_IGNORE_INSERTS
-      len = Native::Kernel32.FormatMessageA(format, nil, hresult, 0, msg_ptr, 0, nil)
-      if len == 0
-        msg = "Error {hresult} (0x#{hresult.to_s(16).upcase})"
-      else
-        msg = msg_ptr.get_pointer(0).get_string(0)
-      end
-      Native::Kernel32.LocalFree(msg_ptr.get_pointer(0))
-      msg_ptr.free
-      raise RAPIException, msg
+      raise RAPIException, format_msg(hresult)
     end
+  end
+
+  def format_msg(errnum)
+    msg_ptr = FFI::MemoryPointer.new(FFI::Pointer)
+    format = Native::FORMAT_MESSAGE_ALLOCATE_BUFFER | Native::FORMAT_MESSAGE_FROM_SYSTEM | Native::FORMAT_MESSAGE_IGNORE_INSERTS
+    len = Native::Kernel32.FormatMessageA(format, nil, hresult, 0, msg_ptr, 0, nil)
+    if len == 0
+      msg = "Error {hresult} (0x#{hresult.to_s(16).upcase})"
+    else
+      msg = msg_ptr.get_pointer(0).get_string(0).rstrip
+    end
+    Native::Kernel32.LocalFree(msg_ptr.get_pointer(0))
+    msg_ptr.free
   end
 
   if RUBY_VERSION =~ /^1\.9\.\d/
