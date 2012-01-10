@@ -191,7 +191,7 @@ class RAPI
     check_connection()
 
     find_data = Native::Rapi::CE_FIND_DATA.new
-    
+
     file_infos = []
     handle = Native::Rapi.CeFindFirstFile(to_utf16(file_name), find_data)
 
@@ -256,6 +256,8 @@ class RAPI
     end
     Native::Kernel32.LocalFree(msg_ptr.get_pointer(0))
     msg_ptr.free
+
+    msg
   end
 
   if RUBY_VERSION =~ /^1\.9\.\d/
@@ -377,7 +379,7 @@ class RAPI
     WAIT_FAILED    = 0xFFFFFFFF
     WAIT_TIMEOUT   = 0x00000102
     WAIT_OBJECT_0  = 0x00000000
- 
+
     FORMAT_MESSAGE_FROM_SYSTEM     = 0x00001000
     FORMAT_MESSAGE_FROM_HMODULE    = 0x00000800
     FORMAT_MESSAGE_IGNORE_INSERTS  = 0x00000200
@@ -401,7 +403,7 @@ class RAPI
       end
 
       def self.to_native(val, ctx)
-        ((val.to_f - Time.new(1601).to_f) / 1.0e-07).to_i 
+        ((val.to_f - Time.new(1601).to_f) / 1.0e-07).to_i
       end
     end
 
