@@ -1,19 +1,55 @@
-= rapi
+About RAPI
+==========
 
-A {Remote API (RAPI)}[http://msdn.microsoft.com/en-us/library/aa920177.aspx] interface.
+Welcome to the **RAPI** project. The [**RAPI** gem](http://rubygems.org/gems/rapi) is an [FFI](https://github.com/ffi/ffi) wrapper for the [Remote API [RAPI]](http://msdn.microsoft.com/en-us/library/aa920177.aspx), providing an intuitive Ruby interface for interacting with mobile devices connected via [ActiveSync](http://en.wikipedia.org/wiki/ActiveSync). **RAPI** is an excellent tool for Windows Mobile developers in need of general automation, or better yet, rolling their own integration test suite in Ruby.
 
-== Contributing to rapi
- 
-* Check out the latest master to make sure the feature hasn't been implemented or the bug hasn't been fixed yet
-* Check out the issue tracker to make sure someone already hasn't requested it and/or contributed it
-* Fork the project
-* Start a feature/bugfix branch
-* Commit and push until you are happy with your contribution
-* Make sure to add tests for it. This is important so I don't break it in a future version unintentionally.
-* Please try not to mess with the Rakefile, version, or history. If you want to have your own version, or is otherwise necessary, that is fine, but please isolate to its own commit so I can cherry-pick around it.
 
-== Copyright
+How to Install RAPI
+===================
+
+<pre><code>gem install rapi
+</code></pre>
+
+
+How to Use RAPI
+===============
+
+```ruby
+require 'rapi'
+
+# Create a new RAPI session
+device = RAPI.new
+device.connect
+
+# Enumerate some files/directories
+some_file = device.glob('\SDMMCDisk\*').first
+
+# Move/delete/copy/download/upload
+device.copy some_file.name, some_file.name + '.backup'
+device.move some_file.name, '\SDMMCDisk\some_other_file_name'
+device.download some_file.name, 'C:\Users\Charles\Desktop\local_copy'
+device.upload 'C:\Users\Charles\Desktop\local_copy', '\SDMMCDisk\some_other_file_name', true # overwrite existing
+device.delete some_file.name
+
+# Create a process
+device.exec "explorer.exe"
+
+# Disconnect
+device.disconnect
+```
+
+Contributing
+============
+
+These things would be awesome to have:
+
+* [Librapi](http://www.synce.org/moin/ComponentOverview) support (for *nix support)
+* [RAPI2](http://msdn.microsoft.com/en-us/library/aa920150.aspx) support
+* [IRAPIStream](http://msdn.microsoft.com/en-us/library/aa917610.aspx) for streaming [CeRapiInvoke](http://msdn.microsoft.com/en-us/library/aa917422.aspx)
+
+
+Copyright
+=========
 
 Copyright (c) 2011 Charles Strahan. See LICENSE.txt for
 further details.
-
