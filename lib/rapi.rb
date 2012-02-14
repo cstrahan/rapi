@@ -1,5 +1,6 @@
 require 'ffi'
 require 'iconv'
+require 'rapi/registry'
 
 module RAPI
 
@@ -61,10 +62,17 @@ module RAPI
     def exist?(remote_file_name)
       check_connection()
 
-      Native::Rapi::CeGetFileAttributes(Util.utf16le(remote_file_name)) != 0xFFFFFFFF
+      Native::Rapi.CeGetFileAttributes(Util.utf16le(remote_file_name)) != 0xFFFFFFFF
     end
 
     alias exists? exist?
+
+    def mkdir(path)
+      check_connection()
+
+      success = Native::Rapi.CeCreateDirectory(Util.utf16le(path), nil) != 0
+      true
+    end
 
     def download(remote_file_name, local_file_name, overwrite = false)
       check_connection()
@@ -193,19 +201,19 @@ module RAPI
 
       ppFindDataArray = FFI::MemoryPointer.new(:pointer)
       count_ptr = FFI::MemoryPointer.new(:uint)
-      success = Native::Rapi::CeFindAllFiles(Util.utf16le(search_term), 255, count_ptr, ppFindDataArray)
+      success = Native::Rapi.CeFindAllFiles(Util.utf16le(search_term), 255, count_ptr, ppFindDataArray)
       if success
         count = count_ptr.get_uint(0)
         if count > 0
-          array_ptr = FFI::Pointer.new(Native::Rapi::CE_FIND_DATA, ppFindDataArray.get_pointer(0))
+          array_ptr = FFI::Pointer.new(Native::Rapi.CE_FIND_DATA, ppFindDataArray.get_pointer(0))
           directory = Util.sanitize_path(search_term)
 
           (0...count).each do |n|
-            info = FileInformation.new(directory, Native::Rapi::CE_FIND_DATA.new(array_ptr[n]))
+            info = FileInformation.new(directory, Native::Rapi.CE_FIND_DATA.new(array_ptr[n]))
             file_infos << info
           end
 
-          Native::Rapi::CeRapiFreeBuffer(array_ptr)
+          Native::Rapi.CeRapiFreeBuffer(array_ptr)
         end
       end
 
@@ -525,17 +533,17 @@ module RAPI
 
         ppFindDataArray = FFI::MemoryPointer.new(:pointer)
         count_ptr = FFI::MemoryPointer.new(:uint)
-        success = Native::Rapi::CeFindAllFiles(Util.utf16le(search_term), 255, count_ptr, ppFindDataArray) != 0
+        success = Native::Rapi.CeFindAllFiles(Util.utf16le(search_term), 255, count_ptr, ppFindDataArray) != 0
         if success
           count = count_ptr.get_uint(0)
 
           if count > 0
-            array_ptr = FFI::Pointer.new(Native::Rapi::CE_FIND_DATA, ppFindDataArray.get_pointer(0))
+            array_ptr = FFI::Pointer.new(Native::Rapi.CE_FIND_DATA, ppFindDataArray.get_pointer(0))
 
-            info = FileInformation.new("", Native::Rapi::CE_FIND_DATA.new(array_ptr[0]))
+            info = FileInformation.new("", Native::Rapi.CE_FIND_DATA.new(array_ptr[0]))
             clean_path << "/" + info.name
 
-            Native::Rapi::CeRapiFreeBuffer(array_ptr)
+            Native::Rapi.CeRapiFreeBuffer(array_ptr)
           end
         else
           raise RAPIException, "Could not read file info"
@@ -546,9 +554,11 @@ module RAPI
     end
 
     if RUBY_VERSION =~ /^1\.9\.\d/
+      UTF16LE_NULL = "\0\0".force_encoding("UTF-16LE")
+
       def self.utf16le(str)
         return nil if str.nil?
-        str.encode("UTF-16LE") + "\0\0".force_encoding("UTF-16LE")
+        str.encode("UTF-16LE") + UTF16LE_NULL
       end
 
       def self.utf8(path)
@@ -560,9 +570,11 @@ module RAPI
         path.force_encoding("UTF-16LE").encode("UTF-8")
       end
     else
+      UTF16LE_NULL = "\0\0"
+
       def self.utf16le(str)
         return nil if str.nil?
-        Iconv.conv("UTF-16LE", "ASCII", str) + "\0\0"
+        Iconv.conv("UTF-16LE", "ASCII", str) + UTF16LE_NULL
       end
 
       def self.utf8(path)
@@ -697,6 +709,8 @@ module RAPI
     FILE_SHARE_READ   = 0x00000001
     FILE_SHARE_WRITE  = 0x00000002
 
+    ERROR_NO_MORE_ITEMS = 0X0103
+
     CREATE_NEW        = 0x00000001
     CREATE_ALWAYS     = 0x00000002
     OPEN_EXISTING     = 0x00000003
@@ -809,6 +823,18 @@ module RAPI
       attach_function :CeSetFilePointer, [:pointer, :int, :pointer, :uint], :uint
       attach_function :CeSetEndOfFile, [:pointer], :uint
       attach_function :CeGetFileSize, [:pointer, :pointer], :uint
+      attach_function :CeCreateDirectory, [:pointer, :pointer], :uint
+
+      attach_function :CeRegCloseKey, [:pointer], :uint
+      attach_function :CeRegCreateKeyEx, [:pointer, :pointer, :uint, :pointer, :uint, :uint, :pointer, :pointer, :pointer], :uint
+      attach_function :CeRegDeleteKey, [:pointer, :pointer], :uint
+      attach_function :CeRegDeleteValue, [:pointer, :pointer], :uint
+      attach_function :CeRegEnumKeyEx, [:pointer, :int, :pointer, :pointer, :pointer, :pointer, :pointer, :pointer], :uint
+      attach_function :CeRegEnumValue, [:pointer, :int, :pointer, :pointer, :pointer, :pointer, :pointer, :pointer], :uint
+      attach_function :CeRegOpenKeyEx, [:pointer, :pointer, :uint, :uint, :pointer], :uint
+      attach_function :CeRegQueryInfoKey, [:pointer, :pointer, :pointer, :pointer, :pointer, :pointer, :pointer, :pointer, :pointer, :pointer, :pointer, :pointer], :uint
+      attach_function :CeRegQueryValueEx, [:pointer, :pointer, :pointer, :pointer, :pointer, :pointer], :uint
+      attach_function :CeRegSetValueEx, [:pointer, :pointer, :uint, :uint, :pointer, :uint], :uint
     end
 
     module Kernel32
