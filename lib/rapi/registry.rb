@@ -155,27 +155,21 @@ module RAPI
       case type
       when REG_SZ, REG_EXPAND_SZ
 	data = Util.utf16le(data.to_s)
-	data_size = data.bytesize
       when REG_MULTI_SZ
 	data = data.to_a.map {|d| Util.utf16le(d.to_s)}.join + Util::UTF16LE_NULL
-	data_size = data.bytesize
       when REG_BINARY
 	data = data.to_s
-	data_size = data.bytesize
       when REG_DWORD
 	data = Win32::Registry::API.packdw(data.to_i)
-	data_size = 4
       when REG_DWORD_BIG_ENDIAN
 	data = [data.to_i].pack('N')
-	data_size = 4
       when REG_QWORD
 	data = Win32::Registry::API.packqw(data.to_i)
-	data_size = 8
       else
 	raise TypeError, "Unsupported type #{type}"
       end
 
-      Native::Rapi.CeRegSetValueEx(@phkey, Util.utf16le(name), 0, type, data, data_size)
+      Native::Rapi.CeRegSetValueEx(@phkey, Util.utf16le(name), 0, type, data, data.bytesize)
     end
 
     def each_value
