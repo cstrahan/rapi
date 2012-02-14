@@ -74,7 +74,7 @@ module RAPI
 
       if length == 0
         return nil if rest[0] && rest[0] > 0
-        return ""
+        return buffer
       end
 
       mem_buffer = FFI::MemoryPointer.new(:char, length)
