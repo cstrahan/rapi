@@ -16,7 +16,6 @@ module RAPI
     end
 
     def connect(timeout_seconds = 1)
-      puts self.copy_buffer_size
       self.disconnect if connected?
 
       init = Native::Rapi::RAPIINIT.new

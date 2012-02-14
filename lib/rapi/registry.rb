@@ -204,8 +204,6 @@ module RAPI
 	when REG_SZ, REG_EXPAND_SZ
 	  data = Util.utf8(data)
 	when REG_MULTI_SZ
-	  puts data.inspect
-	  puts data_size
 	  data.split(/\00/).map {|str| Util.utf8(str)}
 	when REG_BINARY
 	  data = data
