@@ -16,10 +16,10 @@ module RAPI
       access_flags = mode_to_access(@mode)
       creation_flags = mode_to_creation(@mode)
 
-      @remote_file = Native::Rapi.CeCreateFile(Util.utf16le(path), access_flags, 0, 0, creation_flags, Native::FILE_ATTRIBUTE_NORMAL, 0)
+      @handle = Native::Rapi.CeCreateFile(Util.utf16le(path), access_flags, 0, 0, creation_flags, Native::FILE_ATTRIBUTE_NORMAL, 0)
 
-      if @remote_file == Native::INVALID_HANDLE
-        raise RAPIException, "Could not create remote file"
+      unless @handle.valid?
+        Util.handle_hresult! Util.error, "Could not create remote file."
       end
 
       self.pos = self.size if append
@@ -32,10 +32,10 @@ module RAPI
     def size
       # If I pass in a non-NULL uint* for the high DWORD,
       # the func always gives me 0 for both the low and high DWORDs...
-      size = Native::Rapi.CeGetFileSize(@remote_file, nil)
+      size = Native::Rapi.CeGetFileSize(@handle, nil)
 
       if size == Native::INVALID_FILE_SIZE
-        raise RAPIException, "Could not get file size"
+        Util.handle_hresult! Util.error, "Could not get file size."
       end
 
       size
@@ -45,16 +45,19 @@ module RAPI
       buffer = obj.to_s
       bytes_written_ptr = FFI::MemoryPointer.new(:uint)
 
-      success = Native::Rapi.CeWriteFile(@remote_file, buffer, buffer.size, bytes_written_ptr, 0) != 0
+      success = Native::Rapi.CeWriteFile(@handle, buffer, buffer.size, bytes_written_ptr, 0) != 0
 
       bytes_written = bytes_written_ptr.get_uint(0)
       @pos += bytes_written
 
       unless success
-        raise RAPIException, "Could not write to remote file"
+        Util.handle_hresult! Util.error, "Could not write to remote file."
       end
 
       bytes_written
+
+    ensure
+      bytes_written_ptr.free if bytes_written_ptr
     end
 
     def <<(obj)
@@ -80,7 +83,7 @@ module RAPI
       mem_buffer = FFI::MemoryPointer.new(:char, length)
       bytes_read_ptr = FFI::MemoryPointer.new(:uint)
 
-      success = Native::Rapi.CeReadFile(@remote_file, mem_buffer, size, bytes_read_ptr, 0) != 0
+      success = Native::Rapi.CeReadFile(@handle, mem_buffer, size, bytes_read_ptr, 0) != 0
 
       bytes_read = bytes_read_ptr.get_int(0)
       @pos += bytes_read
@@ -88,15 +91,17 @@ module RAPI
       unless success
         mem_buffer.free
         bytes_read_ptr.free
-        raise RAPIException, "Failed to read device data"
+        Util.handle_hresult! Util.error, "Failed to read device data."
       end
 
       buffer << mem_buffer.get_bytes(0, bytes_read)
 
-      mem_buffer.free
-      bytes_read_ptr.free
 
       buffer
+
+    ensure
+      mem_buffer.free if mem_buffer
+      bytes_read_ptr.free if bytes_read_ptr
     end
 
     def pos=(integer)
@@ -116,24 +121,36 @@ module RAPI
         method = Native::FILE_END
       end
 
-      Native::Rapi.CeSetFilePointer(@remote_file, amount, nil, method)
+      success = Native::Rapi.CeSetFilePointer(@handle, amount, nil, method) != 0xFFFFFFFF
+
+      unless success
+        Util.handle_hresult! Util.error, "Failed to move file pointer."
+      end
+
       @pos = new_pos
     end
 
     def truncate(integer)
       old_pos = self.pos
       self.pos = integer
-      Native::Rapi.CeSetEndOfFile(@remote_file)
+
+      success = Native::Rapi.CeSetEndOfFile(@handle) != 0
+
+      unless success
+        Util.handle_hresult! Util.error, "Failed to truncate file."
+      end
+
+    ensure
       self.pos = old_pos
     end
 
     def close
-      Native::Rapi.CeCloseHandle(@remote_file)
-      @remote_file = nil
+      @handle.close
+      @handle = nil
     end
 
     def closed?
-      @remote_file.nil?
+      @handle.nil?
     end
 
     private
@@ -146,15 +163,15 @@ module RAPI
         if args[0].is_a?(String)
           mode = args[0]
         else
-          opt  = args[0]
           mode = opt[:mode] if opt[:mode]
+          opt  = args[0]
         end
       else
         mode = args[0]
         opt  = args[1]
       end
 
-      [mode, opt]
+      [mode, opt || {}]
     end
 
     def mode_to_access(mode)

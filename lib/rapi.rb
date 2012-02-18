@@ -5,14 +5,15 @@ require 'rapi/registry'
 require 'rapi/remote_file'
 
 module RAPI
-  @connected = false
   @copy_buffer_size = 0x1000
 
   class << self
     attr_accessor :copy_buffer_size
 
     def connected?
-      @connected
+      # Try calling an arbitrary function.
+      Native::Rapi.CeGetFileAttributes(Util.utf16le(""))
+      Util.error != Native::CONNECTION_LOST
     end
 
     def connect(timeout_seconds = 1)
@@ -21,7 +22,7 @@ module RAPI
       init = Native::Rapi::RAPIINIT.new
       init[:cbSize] = Native::Rapi::RAPIINIT.size
       ret = Native::Rapi.CeRapiInitEx(init)
-      handle_hresult! ret
+      Util.handle_hresult! ret
       init_event = init[:heRapiInit]
 
       timeout = timeout_seconds * 4
@@ -31,76 +32,88 @@ module RAPI
         ret = Native::Kernel32.WaitForSingleObject(init_event, 250)
 
         if ret == Native::WAIT_FAILED || ret == Native::WAIT_ABANDONED
-          Native::Kernel32.CloseHandle(init_event)
           Native::Rapi.CeRapiUninit
-          raise RAPIException, "Failed to Initialize RAPI"
+          raise RAPIError, "Failed to Initialize RAPI."
         end
 
         if !infinite_timeout
           if (timeout -= 1) < 0
-            Native::Kernel32.CloseHandle(init_event)
             Native::Rapi.CeRapiUninit
-            raise RAPIException, "Timeout waiting for device connection"
+            raise RAPIError, "Timeout waiting for device connection."
           end
         end
       end while ret != Native::WAIT_OBJECT_0
 
       @connected = true
-      Native::Kernel32.CloseHandle(init_event)
 
       true
+
+    ensure
+
+      Native::Kernel32.CloseHandle(init_event) if init_event
+      init.to_ptr.free
     end
 
     def disconnect
-      if connected?
-        Native::Rapi.CeRapiUninit
-        @connected = false
-      end
+      Native::Rapi.CeRapiUninit
 
       true
     end
 
     def exist?(remote_file_name)
-      check_connection()
+      attrs = Native::Rapi.CeGetFileAttributes(Util.utf16le(remote_file_name))
 
-      Native::Rapi.CeGetFileAttributes(Util.utf16le(remote_file_name)) != 0xFFFFFFFF
+      if attrs != 0xFFFFFFFF
+        true
+      else
+        err = Util.error
+        if err == Native::FILE_NOT_FOUND || err == Native::PATH_NOT_FOUND
+          false
+        else
+          Util.handle_hresult! err
+        end
+      end
     end
 
     alias exists? exist?
 
     def mkdir(path)
-      check_connection()
-
       success = Native::Rapi.CeCreateDirectory(Util.utf16le(path), nil) != 0
+
+      unless success
+        Util.handle_hresult! Util.error, "Could not create directory."
+      end
+
       true
     end
 
     def download(remote_file_name, local_file_name, overwrite = false)
-      check_connection()
-
       if !overwrite && File.exists?(local_file_name)
-        raise RAPIException, "A local file with the given name already exists"
+        raise RAPIError, "A local file with the given name already exists."
       end
 
-      remote_file = Native::Rapi.CeCreateFile(Util.utf16le(remote_file_name), Native::GENERIC_READ, 0, 0, Native::OPEN_EXISTING, Native::FILE_ATTRIBUTE_NORMAL, 0)
-      if remote_file == Native::INVALID_HANDLE
-        raise RAPIException, "Could not open remote file"
+      handle = Native::Rapi.CeCreateFile(Util.utf16le(remote_file_name), Native::GENERIC_READ, 0, 0, Native::OPEN_EXISTING, Native::FILE_ATTRIBUTE_NORMAL, 0)
+      unless handle.valid?
+        Util.handle_hresult! Util.error, "Could not open remote file."
       end
+
+      mode = overwrite ? "wb" : "r+b"
+      buffer = FFI::MemoryPointer.new(:char, @copy_buffer_size)
+      bytes_read_ptr = FFI::MemoryPointer.new(:uint)
 
       File.open(local_file_name, "wb") do |f|
-        buffer = FFI::MemoryPointer.new(1, @copy_buffer_size)
-        bytes_read_ptr = FFI::MemoryPointer.new(:uint)
-
         while true
-          ret = Native::Rapi.CeReadFile(remote_file, buffer, buffer.size, bytes_read_ptr, 0)
+          success = Native::Rapi.CeReadFile(handle, buffer, buffer.size, bytes_read_ptr, 0) != 0
+          unless success
+            Util.handle_hresult! Util.error, "Failed to read device data."
+          end
 
           bytes_read = bytes_read_ptr.get_int(0)
 
-          if bytes_read != 0 && ret == 0
-            buffer.free
-            bytes_read_ptr.free
-            Native::Rapi.CeCloseHandle(remote_file)
-            raise RAPIException, "Failed to read device data"
+          if bytes_read != 0 && !success
+            err = Util.error
+            Native::Rapi.CeCloseHandle(handle)
+            Util.handle_hresult! err, "Failed to read device data."
           elsif bytes_read == 0
             break
           end
@@ -108,76 +121,97 @@ module RAPI
           f << buffer.get_bytes(0, bytes_read)
         end
 
-        buffer.free
-        bytes_read_ptr.free
-        Native::Rapi.CeCloseHandle(remote_file)
+        f.truncate(f.pos)
       end
 
       true
+
+    ensure
+      buffer.free if buffer
+      bytes_read_ptr.free if bytes_read_ptr
+      handle.close if handle
     end
 
     def upload(local_file_name, remote_file_name, overwrite = false)
-      check_connection()
-
       create = overwrite ? Native::CREATE_ALWAYS : Native::CREATE_NEW
-      remote_file = Native::Rapi.CeCreateFile(Util.utf16le(remote_file_name), Native::GENERIC_WRITE, 0, 0, create, Native::FILE_ATTRIBUTE_NORMAL, 0)
+      handle = Native::Rapi.CeCreateFile(Util.utf16le(remote_file_name), Native::GENERIC_WRITE, 0, 0, create, Native::FILE_ATTRIBUTE_NORMAL, 0)
 
-      if remote_file == Native::INVALID_HANDLE
-        raise RAPIException, "Could not create remote file"
+      unless handle.valid?
+        raise RAPIError, "Could not create remote file."
       end
 
       if File.size(local_file_name) != 0
         File.open(local_file_name, "rb") do |f|
           while buffer = f.read(copy_buffer_size)
-            if Native::Rapi.CeWriteFile(remote_file, buffer, buffer.size, nil, 0) == 0
-              Native::Rapi.CeCloseHandle(remote_file)
-              raise RAPIException, "Could not write to remote file"
+            if Native::Rapi.CeWriteFile(handle, buffer, buffer.size, nil, 0) == 0
+              Native::Rapi.CeCloseHandle(handle)
+              raise RAPIError, "Could not write to remote file."
             end
           end
         end
       end
 
-      Native::Rapi.CeCloseHandle(remote_file)
-
       true
+
+    ensure
+      handle.close
     end
 
     def copy(existing_file_name, new_file_name, overwrite = false)
-      check_connection()
+      success = Native::Rapi.CeCopyFile(Util.utf16le(existing_file_name), Util.utf16le(new_file_name), overwrite ? 0 : 1) != 0
 
-      if Native::Rapi.CeCopyFile(Util.utf16le(existing_file_name), Util.utf16le(new_file_name), overwrite ? 0 : 1) == 0
-        raise RAPIException, "Cannot copy file"
+      unless success
+        Util.handle_hresult! Util.error, "Could not copy file."
       end
 
       true
     end
 
     def delete(file_name)
-      check_connection()
+      attrs = get_attrs(file_name) rescue nil
 
-      if Native::Rapi.CeDeleteFile(Util.utf16le(file_name)) == 0
-        raise RAPIException, "Could not delete file"
+      unless attrs
+        Util.handle_hresult! Native::FILE_NOT_FOUND, "Could not delete file."
+      end
+
+      if attrs.directory?
+        success = Native::Rapi.CeRemoveDirectory(Util.utf16le(file_name)) != 0
+      else
+        success = Native::Rapi.CeDeleteFile(Util.utf16le(file_name)) != 0
+      end
+
+      unless success
+        Util.handle_hresult! Util.error, "Could not delete file."
       end
 
       true
     end
 
-    def move(existing_file_name, new_file_name)
-      check_connection()
+    alias rm delete
 
-      if Native::Rapi.CeMoveFile(Util.utf16le(existing_file_name), Util.utf16le(new_file_name)) == 0
-        raise RAPIException, "Cannot move file"
+    def rm_rf(path)
+      search(path).each do |file|
+        rm_rf(File.join(file.path, "*")) if file.directory?
+        delete(file.path)
+      end
+    end
+
+    def move(existing_file_name, new_file_name)
+      success = Native::Rapi.CeMoveFile(Util.utf16le(existing_file_name), Util.utf16le(new_file_name)) != 0
+
+      unless success
+        Util.handle_hresult! Util.error, "Could not move file."
       end
 
       true
     end
 
     def get_attributes(file_name)
-      check_connection()
-
       ret = Native::Rapi.CeGetFileAttributes(Util.utf16le(file_name))
-      if ret == 0xFFFFFFFF
-        raise RAPIException, "Could not get file attributes"
+      success = ret != 0xFFFFFFFF
+
+      unless success
+        Util.handle_hresult! Util.error, "Could not get file attributes."
       end
 
       FileAttributes.new(ret)
@@ -186,46 +220,53 @@ module RAPI
     alias get_attrs get_attributes
 
     def set_attributes(file_name, attributes)
-      check_connection()
+      success = Native::Rapi.CeSetFileAttributes(Util.utf16le(file_name), attributes.to_i) != 0
 
-      if Native::Rapi.CeSetFileAttributes(Util.utf16le(file_name), attributes.to_i) == 0
-        raise RAPIExcpetion, "Cannot set device file attributes"
+      unless success
+        Util.handle_hresult! Util.error, "Could not set device file attributes."
       end
+
+      true
     end
 
     alias set_attrs set_attributes
 
     def search(search_term)
-      check_connection()
-
       file_infos = []
 
       ppFindDataArray = FFI::MemoryPointer.new(:pointer)
       count_ptr = FFI::MemoryPointer.new(:uint)
-      success = Native::Rapi.CeFindAllFiles(Util.utf16le(search_term), 255, count_ptr, ppFindDataArray)
-      if success
+      success = Native::Rapi.CeFindAllFiles(Util.utf16le(search_term), 255, count_ptr, ppFindDataArray) != 0
+
+      if !success && Util.error == Native::CONNECTION_LOST
+        Util.handle_hresult! Native::CONNECTION_LOST
+      end
+
+      begin
         count = count_ptr.get_uint(0)
         if count > 0
-          array_ptr = FFI::Pointer.new(Native::Rapi.CE_FIND_DATA, ppFindDataArray.get_pointer(0))
+          array_ptr = FFI::Pointer.new(Native::Rapi::CE_FIND_DATA, ppFindDataArray.get_pointer(0))
           directory = Util.sanitize_path(search_term)
 
           (0...count).each do |n|
-            info = FileInformation.new(directory, Native::Rapi.CE_FIND_DATA.new(array_ptr[n]))
+            info = FileInformation.new(directory, Native::Rapi::CE_FIND_DATA.new(array_ptr[n]))
             file_infos << info
           end
-
-          Native::Rapi.CeRapiFreeBuffer(array_ptr)
         end
       end
 
       file_infos
+
+    ensure
+      ppFindDataArray.free if ppFindDataArray
+      array_ptr.free if array_ptr
+      count_ptr.free if count_ptr
+      Native::Rapi.CeRapiFreeBuffer(array_ptr) if array_ptr
     end
 
     alias glob search
 
     def exec(file_name, *args)
-      check_connection()
-
       args = if args.empty?
                nil
              else
@@ -236,15 +277,13 @@ module RAPI
 
       if Native::Rapi.CeCreateProcess(Util.utf16le(file_name), Util.utf16le(args), nil, nil, 0, 0, nil, nil, nil, pi) == 0
         errnum = Native::Rapi.CeGetLastError
-        handle_hresult! errnum
+        Util.handle_hresult! errnum
       end
 
       ProcessInformation.new(pi)
     end
 
     def tmp
-      check_connection()
-
       buffer = FFI::MemoryPointer.new(:uint16, Native::MAX_PATH + 1)
       temp_path = nil
       if Native::Rapi.CeGetTempPath(Native::MAX_PATH, buffer) != 0
@@ -252,11 +291,12 @@ module RAPI
       end
 
       temp_path
+
+    ensure
+      buffer.free if buffer
     end
 
     def open(path, *rest)
-      check_connection()
-
       file = RemoteFile.new(path, *rest)
       if block_given?
         begin
@@ -269,22 +309,39 @@ module RAPI
       end
     end
 
-    private
-
-    def check_connection
-      unless connected?
-        raise RAPIException, "Cannot perform operation while disconnected"
+    def os
+      os = Native::Rapi::CEOSVERSIONINFO.new
+      os[:dwOSVersionInfoSize] = Native::Rapi::CEOSVERSIONINFO.size
+      success = Native::Rapi.CeGetVersionEx(os) != 0
+      unless success
+        raise RAPIError, "Error retrieving version information."
       end
-    end
 
-    def handle_hresult!(hresult)
-      if hresult != 0
-        raise RAPIException, Util.format_msg(hresult)
-      end
+      OSVersionInfo.new(os)
     end
   end
 
   module Util
+    def self.handle_hresult!(hresult, msg="")
+      if hresult == Native::CONNECTION_LOST
+        sep = msg.size > 0 ? " " : ""
+        msg += sep + "The RAPI connection was lost."
+        raise RAPIError.new(msg)
+      elsif hresult != 0
+        raise RAPIError.new(msg, hresult)
+      end
+    end
+
+    def self.error
+      rapi_error = Native::Rapi.CeRapiGetError
+
+      if rapi_error != 0
+        rapi_error
+      else
+        Native::Rapi.CeGetLastError
+      end
+    end
+
     def self.format_msg(errnum)
       msg_ptr = FFI::MemoryPointer.new(FFI::Pointer)
       format = Native::FORMAT_MESSAGE_ALLOCATE_BUFFER | Native::FORMAT_MESSAGE_FROM_SYSTEM | Native::FORMAT_MESSAGE_IGNORE_INSERTS
@@ -319,15 +376,15 @@ module RAPI
           count = count_ptr.get_uint(0)
 
           if count > 0
-            array_ptr = FFI::Pointer.new(Native::Rapi.CE_FIND_DATA, ppFindDataArray.get_pointer(0))
+            array_ptr = FFI::Pointer.new(Native::Rapi::CE_FIND_DATA, ppFindDataArray.get_pointer(0))
 
-            info = FileInformation.new("", Native::Rapi.CE_FIND_DATA.new(array_ptr[0]))
+            info = FileInformation.new("", Native::Rapi::CE_FIND_DATA.new(array_ptr[0]))
             clean_path << "/" + info.name
 
             Native::Rapi.CeRapiFreeBuffer(array_ptr)
           end
         else
-          raise RAPIException, "Could not read file info"
+          raise RAPIError, "Could not read file info."
         end
       end
 
@@ -366,6 +423,24 @@ module RAPI
 
         Iconv.conv("ASCII", "UTF-16LE", path)
       end
+    end
+  end
+
+  class OSVersionInfo
+    attr_reader :major
+    attr_reader :minor
+    attr_reader :build
+    attr_reader :version
+
+    def initialize(struct)
+      @major = struct[:dwMajorVersion]
+      @minor = struct[:dwMinorVersion]
+      @build = struct[:dwBuildNumber]
+      @version = Util.utf8(struct[:szCSDVersion].to_ptr.get_bytes(0, 256)).freeze
+    end
+
+    def inspect
+      "#<RAPI::OSVersionInfo version=#{major}.#{minor}.#{build}>"
     end
   end
 
@@ -464,7 +539,16 @@ module RAPI
     enum_attr :rom_module,     0x2000
   end
 
-  class RAPIException < Exception
+  class RAPIError < StandardError
+    def initialize(msg, code=nil)
+      code, msg = msg, "" if msg.kind_of?(Integer)
+
+      if code
+        msg += " " + Util.format_msg(code)
+      end
+
+      super msg.strip
+    end
   end
 
   module Native
@@ -538,6 +622,57 @@ module RAPI
     FAF_OID             = 0x40
     FAF_NAME            = 0x80
 
+    # I have no idea what the Windows headers call this...
+    FILE_NOT_FOUND  = 0x00000002
+    PATH_NOT_FOUND  = 0x00000003
+    CONNECTION_LOST = 0x80072775
+
+    class CEHandle < FFI::Pointer
+      extend FFI::DataConverter
+      native_type :pointer
+
+      def self.from_native(val, ctx)
+        new(val.address)
+      end
+
+      def self.to_native(val, ctx)
+        FFI::Pointer.new(val.address)
+      end
+
+      def initialize(handle)
+        @finalizer = Finalizer.new(handle)
+        ObjectSpace.define_finalizer(self, @finalizer)
+        super handle
+      end
+
+      def valid?
+        self != INVALID_HANDLE
+      end
+
+      def invalid?
+        !valid?
+      end
+
+      def close
+        @finalizer.call
+      end
+
+      class Finalizer
+        def initialize(handle)
+          @handle = handle
+          @called = handle == INVALID_HANDLE.address
+        end
+
+        def call
+          unless @called
+            Native::Rapi.CeCloseHandle(FFI::Pointer.new(@handle))
+            @called = true
+            @handle = INVALID_HANDLE.address
+          end
+        end
+      end
+    end
+
     class FILETIME
       extend FFI::DataConverter
       native_type :uint64
@@ -580,18 +715,29 @@ module RAPI
                 :dwThreadId,     :uint
       end
 
+
+      class CEOSVERSIONINFO < FFI::Struct
+        layout  :dwOSVersionInfoSize, :uint,
+                :dwMajorVersion,      :uint,
+                :dwMinorVersion,      :uint,
+                :dwBuildNumber,       :uint,
+                :dwPlatformId,        :uint,
+                :szCSDVersion,        [:uint16, 128]
+      end
+
       attach_function :CeRapiFreeBuffer, [:pointer], :uint
       attach_function :CeRapiInitEx, [RAPIINIT.by_ref], :int
       attach_function :CeRapiUninit, [], :int
       attach_function :CeRapiGetError, [], :uint
-      attach_function :CeCloseHandle, [:pointer], :int
+      attach_function :CeCloseHandle, [CEHandle], :int
       attach_function :CeWriteFile, [:pointer, :pointer, :int, :pointer, :int], :int
       attach_function :CeReadFile, [:pointer, :pointer, :int, :pointer, :int], :int
       attach_function :CeRapiFreeBuffer, [:pointer], :void
       attach_function :CeGetFileAttributes, [:pointer], :uint
-      attach_function :CeCreateFile, [:pointer, :uint, :int, :int, :int, :int, :int], :pointer
+      attach_function :CeCreateFile, [:pointer, :uint, :int, :int, :int, :int, :int], CEHandle
       attach_function :CeCopyFile, [:pointer, :pointer, :int], :uint
       attach_function :CeDeleteFile, [:pointer], :uint
+      attach_function :CeRemoveDirectory, [:pointer], :uint
       attach_function :CeGetFileAttributes, [:pointer], :uint
       attach_function :CeSetFileAttributes, [:pointer, :uint], :uint
       attach_function :CeFindFirstFile, [:pointer, CE_FIND_DATA.by_ref], :pointer
@@ -605,6 +751,7 @@ module RAPI
       attach_function :CeSetEndOfFile, [:pointer], :uint
       attach_function :CeGetFileSize, [:pointer, :pointer], :uint
       attach_function :CeCreateDirectory, [:pointer, :pointer], :uint
+      attach_function :CeGetVersionEx, [CEOSVERSIONINFO.by_ref], :uint
 
       attach_function :CeRegCloseKey, [:pointer], :uint
       attach_function :CeRegCreateKeyEx, [:pointer, :pointer, :uint, :pointer, :uint, :uint, :pointer, :pointer, :pointer], :uint

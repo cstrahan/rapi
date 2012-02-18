@@ -1,5 +1,6 @@
 # encoding: utf-8
 require 'rubygems'
+require 'rspec/core/rake_task'
 
 task :console do
   $:.unshift(File.expand_path("../lib", __FILE__))
@@ -33,9 +34,6 @@ Jeweler::Tasks.new do |gem|
 end
 Jeweler::RubygemsDotOrgTasks.new
 
-require 'rake/testtask'
-Rake::TestTask.new(:test) do |test|
-  test.libs << 'lib' << 'test'
-  test.pattern = 'test/**/test_*.rb'
-  test.verbose = true
+RSpec::Core::RakeTask.new do |t|
+  t.pattern = "./spec/**/*_spec.rb"
 end
