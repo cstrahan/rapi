@@ -363,7 +363,7 @@ module RAPI
       # Make sure each part is properly cased
       clean_path = ""
 
-      pieces = path.split(%r{/|\\}).select {|p| !p.empty?}
+      pieces = path.split(%r{\\|/}).select {|p| !p.empty?}
 
       pieces.each do |piece|
         search_term = clean_path + "/" + piece
