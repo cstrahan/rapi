@@ -2,10 +2,6 @@ describe RAPI do
   include TempHelper
 
   context "when connected" do
-    def tmp(parts=[])
-      File.join(RAPI.tmp, "rapi_test_dir", *parts)
-    end
-
     before do
       RAPI.connect unless RAPI.connected?
       RAPI.rm_rf(tmp)
