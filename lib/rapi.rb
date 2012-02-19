@@ -97,7 +97,6 @@ module RAPI
         Util.handle_hresult! Util.error, "Could not open remote file."
       end
 
-      mode = overwrite ? "wb" : "r+b"
       buffer = FFI::MemoryPointer.new(:char, @copy_buffer_size)
       bytes_read_ptr = FFI::MemoryPointer.new(:uint)
 
@@ -137,7 +136,7 @@ module RAPI
       handle = Native::Rapi.CeCreateFile(Util.utf16le(remote_file_name), Native::GENERIC_WRITE, 0, 0, create, Native::FILE_ATTRIBUTE_NORMAL, 0)
 
       unless handle.valid?
-        raise RAPIError, "Could not create remote file."
+        Util.handle_hresult! Util.error, "Could not create remote file."
       end
 
       if File.size(local_file_name) != 0
@@ -188,6 +187,14 @@ module RAPI
     end
 
     alias rm delete
+
+    def rm_r(path)
+      unless exist?(path)
+        raise RAPIError, "No such file or directory - #{path}"
+      end
+
+      rm_rf(path)
+    end
 
     def rm_rf(path)
       search(path).each do |file|
@@ -276,8 +283,7 @@ module RAPI
       pi = Native::Rapi::PROCESS_INFORMATION.new
 
       if Native::Rapi.CeCreateProcess(Util.utf16le(file_name), Util.utf16le(args), nil, nil, 0, 0, nil, nil, nil, pi) == 0
-        errnum = Native::Rapi.CeGetLastError
-        Util.handle_hresult! errnum
+        Util.handle_hresult! Util.error
       end
 
       ProcessInformation.new(pi)
@@ -285,10 +291,13 @@ module RAPI
 
     def tmp
       buffer = FFI::MemoryPointer.new(:uint16, Native::MAX_PATH + 1)
-      temp_path = nil
-      if Native::Rapi.CeGetTempPath(Native::MAX_PATH, buffer) != 0
-        temp_path = Util.utf8(buffer.get_bytes(0, Native::MAX_PATH * 2))
+      success = Native::Rapi.CeGetTempPath(Native::MAX_PATH, buffer) != 0
+
+      unless success
+        Util.handle_hresult! Util.error, "Could not get the temporary path."
       end
+
+      temp_path = Util.utf8(buffer.get_bytes(0, Native::MAX_PATH * 2))
 
       temp_path
 
@@ -296,17 +305,8 @@ module RAPI
       buffer.free if buffer
     end
 
-    def open(path, *rest)
-      file = RemoteFile.new(path, *rest)
-      if block_given?
-        begin
-          yield file
-        ensure
-          file.close
-        end
-      else
-        file
-      end
+    def open(path, *rest, &block)
+      RemoteFile.open(path, *rest, &block)
     end
 
     def os

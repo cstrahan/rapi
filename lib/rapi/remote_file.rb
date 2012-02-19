@@ -6,6 +6,19 @@ module RAPI
     attr_reader :pos
     alias tell pos
 
+    def self.open(path, *rest)
+      file = new(path, *rest)
+      if block_given?
+        begin
+          yield file
+        ensure
+          file.close
+        end
+      else
+        file
+      end
+    end
+
     def initialize(path, *rest)
       @path = path.freeze
       @pos = 0
