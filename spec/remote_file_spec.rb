@@ -28,14 +28,21 @@ describe RAPI::RemoteFile do
         RAPI.upload(alphabet, tmp("tempfile"))
       end
 
+      self::READ.each do |mode|
+        it "should read file when mode is #{mode}" do
+          subject.open(tmp("tempfile"), mode) do |file|
+            file.size.should == 26
+            file.pos.should == 0
+          end
+        end
+      end
+
       self::APPEND.each do |mode|
         it "should append file when mode is #{mode}" do
           subject.open(tmp("tempfile"), mode) do |file|
             file.size.should == 26
             file.pos.should == 26
           end
-
-          RAPI.exist?(tmp("tempfile")).should be_true
         end
       end
 
@@ -45,8 +52,6 @@ describe RAPI::RemoteFile do
             file.size.should == 0
             file.pos.should == 0
           end
-
-          RAPI.exist?(tmp("tempfile")).should be_true
         end
       end
     end

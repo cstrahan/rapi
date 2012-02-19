@@ -143,8 +143,7 @@ module RAPI
         File.open(local_file_name, "rb") do |f|
           while buffer = f.read(copy_buffer_size)
             if Native::Rapi.CeWriteFile(handle, buffer, buffer.size, nil, 0) == 0
-              Native::Rapi.CeCloseHandle(handle)
-              raise RAPIError, "Could not write to remote file."
+              Util.handle_hresult! Util.error, "Could not write to remote file."
             end
           end
         end
@@ -153,7 +152,7 @@ module RAPI
       true
 
     ensure
-      handle.close
+      handle.close if handle
     end
 
     def copy(existing_file_name, new_file_name, overwrite = false)
