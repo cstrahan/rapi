@@ -220,32 +220,30 @@ module RAPI
     end
 
     def parse_mode(mode)
-      if mode.is_a?(String)
-        pattern = /^(w|r|a)\+?(b|t)?$/
+      return mode unless mode.is_a? String
 
-        unless pattern.match(mode)
-          raise ArgumentError, "invalid access mode #{mode}"
-        end
+      pattern = /^(w|r|a)\+?(b|t)?$/
 
-        mode_hash = {
-          "r"  => RDONLY,
-          "r+" => RDWR,
-          "w"  => WRONLY | TRUNC | CREAT,
-          "w+" => RDWR | TRUNC | CREAT,
-          "a"  => WRONLY | APPEND | CREAT,
-          "a+" => RDWR | APPEND | CREAT,
-          "b"  => BINARY,
-          "t"  => 0,
-          ""   => 0
-        }
-
-        enum = mode_hash[mode.delete("b").delete("t")] |
-               mode_hash[mode.delete("r").delete("w").delete("a").delete("+")]
-
-        enum
-      else
-        mode
+      unless pattern.match(mode)
+        raise ArgumentError, "invalid access mode #{mode}"
       end
+
+      mode_hash = {
+        "r"  => RDONLY,
+        "r+" => RDWR,
+        "w"  => WRONLY | TRUNC | CREAT,
+        "w+" => RDWR | TRUNC | CREAT,
+        "a"  => WRONLY | APPEND | CREAT,
+        "a+" => RDWR | APPEND | CREAT,
+        "b"  => BINARY,
+        "t"  => 0,
+        ""   => 0
+      }
+
+      enum = mode_hash[mode.delete("b").delete("t")] |
+             mode_hash[mode.delete("r").delete("w").delete("a").delete("+")]
+
+      enum
     end
   end
 end
