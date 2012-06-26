@@ -1,6 +1,7 @@
 require 'ffi'
 require 'iconv'
 
+require 'rapi/version'
 require 'rapi/registry'
 require 'rapi/remote_file'
 

@@ -1,11 +1,19 @@
 # encoding: utf-8
-require 'rubygems'
+$:.unshift File.expand_path("../lib", __FILE__)
+
+require 'rapi/version'
 require 'rspec/core/rake_task'
 
+# build, install, release
+Bundler::GemHelper.install_tasks
+
+RSpec::Core::RakeTask.new do |t|
+  t.pattern = "./spec/**/*_spec.rb"
+end
+
 task :console do
-  $:.unshift(File.expand_path("../lib", __FILE__))
   require 'rapi'
-  
+
   if ARGV[1]
     begin
       script = File.readlines(ARGV[1]).join("\n")
@@ -16,24 +24,31 @@ task :console do
       puts er.backtrace[0...8]
     end
   end
-  
+
   require 'irb'
   ARGV.clear
   IRB.start
 end
 
-require 'jeweler'
-Jeweler::Tasks.new do |gem|
-  gem.name = "rapi"
-  gem.homepage = "http://github.com/cstrahan/rapi"
-  gem.license = "MIT"
-  gem.summary = %Q{A Remote API (RAPI) interface.}
-  gem.description = %Q{A Remote API (RAPI) interface.}
-  gem.email = "charles.c.strahan@gmail.com"
-  gem.authors = ["Charles Strahan"]
+# Inspired by `require_clean_work_tree'
+# http://stackoverflow.com/questions/3878624
+def work_tree_clean?
+  `git update-index -q --ignore-submodules --refresh`
+  if `git diff-files --quiet --ignore-submodules --` && !$?.success?
+    false
+  elsif `git diff-index --cached --quiet HEAD --ignore-submodules --` && !$?.success?
+    false
+  else
+    true
+  end
 end
-Jeweler::RubygemsDotOrgTasks.new
 
-RSpec::Core::RakeTask.new do |t|
-  t.pattern = "./spec/**/*_spec.rb"
+desc "Create tag v#{RAPI::VERSION}"
+task :tag do
+  if work_tree_clean?
+    sh "git tag v#{RAPI::VERSION}"
+    sh "git push origin v#{RAPI::VERSION}"
+  else
+    fail "Your work tree isn't clean!"
+  end
 end

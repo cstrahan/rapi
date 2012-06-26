@@ -1,7 +1,7 @@
 About RAPI
 ==========
 
-Welcome to the **RAPI** project. The [**RAPI** gem](http://rubygems.org/gems/rapi) is an [FFI](https://github.com/ffi/ffi) wrapper for the [Remote API [RAPI]](http://msdn.microsoft.com/en-us/library/aa920177.aspx), providing an intuitive Ruby interface for interacting with mobile RAPIs connected via [ActiveSync](http://en.wikipedia.org/wiki/ActiveSync). **RAPI** is an excellent tool for Windows Mobile developers in need of general automation, or better yet, rolling their own integration test suite in Ruby.
+Welcome to the **RAPI** project. The [**RAPI** gem](http://rubygems.org/gems/rapi) is an [FFI](https://github.com/ffi/ffi) wrapper for the [Remote API [RAPI]](http://msdn.microsoft.com/en-us/library/aa920177.aspx), providing an intuitive Ruby interface for interacting with mobile devices connected via [ActiveSync](http://en.wikipedia.org/wiki/ActiveSync). **RAPI** is an excellent tool for Windows Mobile developers in need of general automation, or better yet, rolling their own integration test suite in Ruby.
 
 
 How to Install RAPI
